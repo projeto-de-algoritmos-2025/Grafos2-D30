@@ -69,8 +69,9 @@ def dijkstra(graph, start_node, end_node):
     else:
         return None  # Retorna None se o nó de destino não for alcançável
 
-# Exemplo de uso
 
+"""
+# Exemplo de uso
 graph = {
     "id": "17049ee2478340ef93fc4f657eaf53b1",
     "name": "G",
@@ -95,3 +96,4 @@ if result:
     print(f"Distância: {result['distance']}")
 else:
     print(f"Nenhum caminho encontrado de {start_node} para {end_node}.")
+"""

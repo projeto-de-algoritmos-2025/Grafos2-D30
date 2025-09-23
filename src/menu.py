@@ -1,5 +1,4 @@
-from src.classes import Graph, Node
-from src.topological_ordering import top_order
+from src.dijkstra import dijkstra
 from tkinter import messagebox, simpledialog, Toplevel, Canvas, Scrollbar
 import tkinter.font as tkfont
 import tkinter as tk
@@ -7,6 +6,13 @@ import json
 import uuid
 import os
 import math
+
+class Graph():
+    def __init__(self, name):
+        self.id = uuid.uuid4().hex
+        self.name = name
+        self.nodes = []
+        self.edges = []
 
 DEFAULT_FILE = 'db/database.json'
 
@@ -36,7 +42,7 @@ class App():
         btn_add = tk.Button(frame, text='Adicionar', width=12, command=self.on_add)
         btn_remove = tk.Button(frame, text='Remover', width=12, command=self.on_remove)
         btn_save = tk.Button(frame, text='Salvar em JSON', width=12, command=self.on_save)
-        btn_view = tk.Button(frame, text='Gerar Topologia', width=12, command=self.on_view)
+        btn_view = tk.Button(frame, text='Gerar Caminho Mínimo', width=12, command=self.on_view)
         btn_quit = tk.Button(frame, text='Sair', width=12, command=root.quit)
 
         btn_add.grid(row=2, column=0, pady=8, sticky='w')
@@ -102,7 +108,10 @@ class App():
         with open(filepath, 'w', encoding='utf-8') as f:
             db_dump = []
             for g in self.graphs:
-                db_dump.append(g.data_list())
+                db_dump.append({"id": g.id,
+                                "name": g.name,
+                                "nodes": g.nodes,
+                                "edges": g.edges})
             json.dump(db_dump, f, ensure_ascii=False, indent=2)
 
     def load_from_file(self, filepath):
@@ -113,16 +122,11 @@ class App():
         db_graphs = []
         
         for d in data:
-            db_nodes = []
-            for key, value in d['nodes'].items():
-                db_node = Node(key)
-                db_node.edges = value
-                db_nodes.append(db_node)
-
-            db_graph = Graph(d['name'])
-            db_graph.id = d['id']
-            db_graph.nodes = db_nodes
-            db_graphs.append(db_graph)
+            g = Graph(d["name"])
+            g.id = d["id"]
+            g.nodes = d["nodes"]
+            g.edges = d["edges"]
+            db_graphs.append(g)
         # deserialization end
 
         if not isinstance(data, list):
@@ -159,11 +163,11 @@ class App():
         def refresh_node_list():
             lb.delete(0, tk.END)
             for d in graph.nodes:
-                lb.insert(tk.END, d.name)
+                lb.insert(tk.END, d)
 
         def add_node():
             name = simpledialog.askstring('Adicionar nó', 'Nome do nó:', parent=win)
-            names = [item.name for item in graph.nodes]
+            names = graph.nodes
             if name in names:
                 messagebox.showwarning('Erro', 'Já existe um nó com esse nome.', parent=win)
                 return
@@ -171,7 +175,7 @@ class App():
                 messagebox.showwarning('Erro', 'O nome não deve ser vazio.', parent=win)
                 return
             else:
-                graph.create_node(name.strip())
+                graph.nodes.append(name.strip())
                 refresh_node_list()
                 self.refresh_listbox()
 
@@ -182,7 +186,13 @@ class App():
                 return
             i = s[0]
             node = graph.nodes[i]
-            if messagebox.askyesno('Confirmar remoção', f'Deseja remover o nó "{node.name}"?', parent=win):
+            if messagebox.askyesno('Confirmar remoção', f'Deseja remover o nó "{node}"?', parent=win):
+
+                for ed in graph.edges: # deleta as arestas
+                    if i in ed[0]:
+                        j = graph.edges.index(ed)
+                        del graph.edges[j]
+
                 del graph.nodes[i]
                 refresh_node_list()
                 self.refresh_listbox()
@@ -212,63 +222,104 @@ class App():
 
             # Janela de edição: permite alterar nome e selecionar arestas
             ed = tk.Toplevel(win)
-            ed.title(f"Editar — {node.name}")
+            ed.title(f"Editar — {node}")
 
-            tk.Label(ed, text='Nome:').grid(row=0, column=0, sticky='w', padx=8, pady=(8,0))
-            name_var = tk.StringVar(value=node.name)
+            tk.Label(ed, text='Nome:').grid(row=0, column=0, sticky='w', padx=8, pady=(8, 0))
+            name_var = tk.StringVar(value=node)
             entry = tk.Entry(ed, textvariable=name_var, width=20)
-            entry.grid(row=0, column=1, padx=8, pady=(8,0), sticky='nsew')
+            entry.grid(row=0, column=1, padx=8, pady=(8, 0), sticky='nsew')
 
-            tk.Label(ed, text='Arestas de saída (selecione múltiplos):').grid(row=1, column=0, columnspan=2, sticky='w', padx=8, pady=(8,0))
+            tk.Label(ed, text='Arestas de saída (selecione múltiplos e defina custos):').grid(
+                row=1, column=0, columnspan=2, sticky='w', padx=8, pady=(8, 0))
 
             # Lista de possíveis arestas: todos os outros nós no mesmo grafo
-            candidates = [d for d in graph.nodes if d.name != node.name]
-            listbox_pr = tk.Listbox(ed, selectmode=tk.MULTIPLE, height=10, width=40)
-            listbox_pr.grid(row=2, column=0, columnspan=2, padx=8, pady=(4,8), sticky='nsew')
+            candidates = [d for d in graph.nodes if d != node]
 
-            # preencher
-            id_to_index = {}
-            for idx_c, cand in enumerate(candidates):
-                listbox_pr.insert(tk.END, cand.name)
-                id_to_index[cand.name] = idx_c
+            # Dicionário para armazenar o custo das arestas
+            edge_costs = {}
 
-            # pre-selecionar os que já são arestas
-            existing = node.edges
-            for pid in existing:
-                if pid in id_to_index:
-                    listbox_pr.selection_set(id_to_index[pid])
+            def update_cost(event, node_name, cost_var):
+                """Função que será chamada para aumentar o custo da aresta quando pressionada uma seta"""
+                current_cost = cost_var.get()
+                if current_cost == "Desmarcado":
+                    new_cost = 0
+                else:
+                    new_cost = int(current_cost) + 1
+                cost_var.set(new_cost)
+
+            # Preencher as opções de aresta com Checkbuttons e Spinboxes
+
+            for idx, cand in enumerate(candidates):
+                row = idx + 2
+                tk.Label(ed, text=cand).grid(row=row, column=0, padx=8, pady=4, sticky='w')
+
+                # Inicializa o valor da aresta (se existe)
+                for item in graph.edges:
+                    if graph.nodes.index(cand) in item[0] and graph.nodes.index(node) in item[0]:
+                        edge_costs[cand] = item[1]
+                        cost_var = tk.IntVar(value=item[1])  # Usando IntVar, já que é um valor inteiro
+                        break
+                else:
+                    edge_costs[cand] = 0
+                    cost_var = tk.IntVar(value=0)
+
+                # Criar o Spinbox e associar a cost_var a ele
+                cost_entry = tk.Spinbox(ed, from_=0, to=100, textvariable=cost_var, state="normal", width=5)
+                cost_entry.grid(row=row, column=2, padx=8, pady=4, sticky='w')
+
+                # Função de callback que será chamada sempre que o valor do Spinbox mudar
+                def on_spinbox_change(*args, cand=cand, cost_var=cost_var):  # Passar 'cost_var' explicitamente
+                    edge_costs[cand] = cost_var.get()  # Atualiza o custo para o nó específico
+                    #print(edge_costs)  # Exibe para debug
+
+                # Registrar a função de callback com trace
+                cost_var.trace("w", on_spinbox_change)
+
+                # Função para aumentar o custo ao pressionar a seta direita
+                def increase_cost(event, cand=cand, cost_var=cost_var):  # Passar 'cost_var' explicitamente
+                    current_value = cost_var.get()
+                    new_value = current_value + 1
+                    cost_var.set(new_value)  # Atualiza o valor do Spinbox
+                    edge_costs[cand] = new_value  # Atualiza o dicionário de arestas
+
+                # Associar a tecla de seta direita para aumentar o custo
+                cost_entry.bind("<Right>", lambda event, var=cost_var, cand=cand: increase_cost(event, cand))
+                
 
             def save_edit():
                 new_name = name_var.get().strip()
-                names = [item.name for item in graph.nodes]
-                if (new_name in names) and (new_name != node.name):
+                names = graph.nodes
+                if (new_name in names) and (new_name != node):
                     messagebox.showwarning('Erro', 'Já existe um nó com esse nome.', parent=ed)
                     return
                 elif new_name == '':
                     messagebox.showwarning('Erro', 'O nome não deve ser vazio.', parent=ed)
                     return
-                
-                # coletar seleções e mapear para ids
-                sel_idxs = listbox_pr.curselection()
-                selected_ids = [candidates[j].name for j in sel_idxs]
+                    
+    
+                # Coletar as arestas selecionadas e seus custos
+                new_edges = []
+                for key, value in edge_costs.items():
+                    if value != 0:
+                        new_edges.append([[graph.nodes.index(node), graph.nodes.index(key)], value])
 
-                # salvar
-                node.name = new_name
-                node.edges = selected_ids
+                
+                # Salvar
+                graph.nodes[s[0]] = new_name
+                graph.edges = new_edges
 
                 refresh_node_list()
                 ed.destroy()
 
             btn_save = tk.Button(ed, text='Salvar', width=12, command=save_edit)
             btn_cancel = tk.Button(ed, text='Cancelar', width=12, command=ed.destroy)
-            btn_save.grid(row=3, column=0, pady=8, padx=8, sticky='w')
-            btn_cancel.grid(row=3, column=1, pady=8, padx=8, sticky='e')
+            btn_save.grid(row=len(candidates) + 2, column=0, pady=8, padx=8, sticky='w')
+            btn_cancel.grid(row=len(candidates) + 2, column=1, pady=8, padx=8, sticky='e')
 
             ed.grid_rowconfigure(1, weight=1)
             ed.grid_rowconfigure(2, weight=1)
             ed.grid_columnconfigure(1, weight=1)
 
-            
             ed.after(100, ed.grab_set)
             ed.after(100, entry.focus_set)
 
@@ -300,57 +351,17 @@ class App():
             return
         idx = sel[0]
         graph = self.graphs[idx]
-        nodes = graph.nodes
-        
-        if not nodes:
-            messagebox.showinfo('Visualizar Grafo', 'O grafo selecionado não possui nós.')
+
+        start_node = simpledialog.askstring('Nó de Origem', 'Digite o Nome do nó de origem:')
+        if start_node not in graph.nodes:
+            messagebox.showwarning('Erro', 'Não existe um nó com esse nome.', parent=self.root)
             return
-
-        win = Toplevel(self.root)
-        win.title(f"Visualização do Grafo — {graph.name}")
-        win.geometry('600x600')
-
-        canvas = Canvas(win, bg='white')
-        canvas.pack(fill='both', expand=True)
-
-        # --- Parâmetros de desenho do grafo ---
-        center_x = 300
-        center_y = 300
-        radius = 200
-        node_size = 30
+        end_node = simpledialog.askstring('Nó de Destino', 'Digite o Nome do nó de destino:')
+        if end_node not in graph.nodes:
+            messagebox.showwarning('Erro', 'Não existe um nó com esse nome.', parent=self.root)
+            return
         
-        # Guardar posições dos nós para desenhar as arestas
-        node_positions = {}
+        dict = dijkstra(graph, start_node, end_node)
+
+        messagebox.showinfo('Algoritmo de Dijkstra', f'Caminho: {dict['path']}\nDistância: {dict['distance']}')
         
-        # Distribui os nós em um círculo
-        num_nodes = len(nodes)
-        for i, node in enumerate(nodes):
-            angle = 2 * 3.14159 * i / num_nodes
-            x = center_x + radius * math.cos(angle)
-            y = center_y + radius * math.sin(angle)
-            
-            node_positions[node.name] = (x, y)
-            
-            # Desenha o círculo do nó
-            canvas.create_oval(x - node_size, y - node_size, x + node_size, y + node_size,
-                               fill='#f0f0f0', outline='#333', width=1.5)
-            # Desenha o texto do nome do nó
-            canvas.create_text(x, y, text=node.name)
-
-        # Desenha as arestas entre os nós
-        for node in nodes:
-            for edge_name in node.edges:
-                if edge_name in node_positions:
-                    x1, y1 = node_positions[node.name]
-                    x2, y2 = node_positions[edge_name]
-                    canvas.create_line(x1, y1, x2, y2, width=1.5, fill='#666')
-
-        # Botão fechar
-        btn_frame = tk.Frame(win, bg='white')
-        btn_frame.pack(fill='x', pady=(6,6))
-        close_btn = tk.Button(btn_frame, text='Fechar', command=win.destroy, width=12)
-        close_btn.pack(side='right', padx=10)
-
-        win.transient(self.root)
-        win.grab_set()
-        win.focus_force()

@@ -14,8 +14,8 @@ def dijkstra(graph, start_node, end_node):
         dict: Um dicionário contendo o caminho mais curto do nó inicial ao final,
               e a distância total. Retorna None se o destino não for alcançável.
     """
-    nodes = graph['nodes']
-    edges = graph['edges']
+    nodes = graph.nodes
+    edges = graph.edges
     
     # Etapa 1: Converter para lista de adjacências
     adjacency_list = {node: [] for node in nodes}

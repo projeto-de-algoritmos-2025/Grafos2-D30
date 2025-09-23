@@ -1,8 +1,16 @@
-# Grafos2-D30
+# DijkstraNet
 
 ## Sobre 
 
-Texto
+O DijkstraNet é o resultado do trabalho da Dupla 30 no segundo módulo (Grafos 2) da disciplina de Projeto de Algoritmos, na Universidade de Brasília (UnB/FCTE). Este projeto explora a modelagem de uma rede de computadores como um grafo, onde servidores, roteadores e computadores são os nós, e as conexões entre eles são as arestas. O objetivo principal é encontrar os caminhos de menor latência para a transmissão de dados, utilizando o algoritmo de Dijkstra.
+
+Para isso, construímos uma interface simples para gerenciamento de redes. Basta criar a rede, adicionar os dispositivos (servidores e roteadores), configurar suas conexões e as latências entre elas. A aplicação, então, gera um relatório com os caminhos de menor latência para a comunicação entre quaisquer dois pontos da rede! A seguir, estão listadas algumas das funcionalidades implementadas:
+
+* Criação, remoção, atualização e visualização de redes, servidores e roteadores;
+* Navegação totalmente funcional entre menus, facilitando a interação do usuário;
+* Serialização dos dados de rede em um banco de dados JSON, garantindo a persistência das informações;
+* Cálculo do caminho mais rápido (com menor latência) entre um servidor de origem e um servidor de destino;
+* Mensagens de erro e contorno para situações problemáticas, como nós não conectados ou inexistentes.
 
 <br>
 
@@ -16,17 +24,17 @@ Confira a apresentação do projeto pela [**dupla**](#alunos) no link: ***https:
 
 Abaixo, estão *screenshots* demonstrando um exemplo do funcionamento do sistema:
 
-### *► Screenshot 1*
+### *► Menu Principal*
 
-![Screenshot 1](docs/assets/screenshot_1.png)
+![Menu Principal](docs/assets/main_menu.png)
 
-### *► Screenshot 2*
+### *► Edição de Nós*
 
-![Screenshot 2](docs/assets/screenshot_2.png)
+![Edição de Nós](docs/assets/edição_de_nós.png)
 
-### *► Screenshot 3*
+### *► Caminho Gerado*
 
-![Screenshot 3](docs/assets/screenshot_3.png)
+![Caminho Gerado](docs/assets/caminho_gerado.png)
 
 <br>
 
